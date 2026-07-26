@@ -53,6 +53,7 @@ jobs:
           github_access_token: ${{ github.token }}
           nix_conf: |
             access-tokens = github.com=${{ github.token }}
+            max-jobs = auto
 
       - name: nix fmt --ci
         run: nix fmt -- --ci
