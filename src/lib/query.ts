@@ -7,7 +7,30 @@ import { compileWhere } from './expr'
 
 type Step = { kind: 'key'; name: string } | { kind: 'iter' } | { kind: 'index'; i: number }
 
-export function typeOf(v: unknown): string {
+// jq's type vocabulary, which `typeof` alone cannot produce: it answers
+// 'object' for both null and arrays. The non-JSON arms are here because the
+// input is `unknown` — a JSON document never reaches them.
+export type JqType =
+  | 'null'
+  | 'array'
+  | 'object'
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'undefined'
+  | 'bigint'
+  | 'symbol'
+  | 'function'
+
+/**
+ * The jq type name of a value, used for dispatch and for error messages that
+ * read like jq's own ("cannot index array with ...").
+ *
+ * @example
+ * typeOf(null) // => 'null'
+ * typeOf([1])  // => 'array'   (typeof would say 'object')
+ */
+export function typeOf(v: unknown): JqType {
   if (v === null) return 'null'
   if (Array.isArray(v)) return 'array'
   return typeof v
