@@ -29,25 +29,29 @@ jobs:
       - run: bunx oxfmt --check .
       - run: bun test
 
-  # The native build is a separate job per OS: --dynamic binaries are
-  # host-native (the embedded engine archive is built per target, and
-  # cross-compiling a --dynamic build is not supported), so each platform needs
-  # its own runner. The first build on a runner compiles that engine from
-  # source, which takes minutes and needs a C toolchain the `test` job has no
-  # other use for.
+  # A job per OS: a scriptc --dynamic binary is host-native (the embedded engine
+  # archive is built per target, and cross-compiling one is not supported), so
+  # each platform needs its own runner. The first build on a runner compiles
+  # that engine from source, which takes minutes and needs a C toolchain the
+  # `test` job has no other use for.
   build:
-    name: compile (${{ matrix.os }})
+    name: compile (${{ matrix.target }}, ${{ matrix.builder }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    # Windows is expected to fail today: scriptc has not ported the socket
-    # stack (net/http/https/tls), which is where ax's fetch lives. Kept in the
-    # matrix so the gap stays visible and flips to green on its own once that
-    # lands upstream — drop continue-on-error then.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+        include:
+          - { os: ubuntu-latest, target: linux-x64, builder: scriptc }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, builder: scriptc }
+          - { os: macos-latest, target: darwin-arm64, builder: scriptc }
+          - { os: macos-13, target: darwin-x64, builder: scriptc }
+          # Windows builds with bun instead: scriptc has not ported the socket
+          # stack (net/http/https/tls), which is where ax's fetch lives. The
+          # sources are the same, and the bun path keeps the full-fidelity
+          # lib/platform.ts (TextDecoder labels, the stdout drain) that the
+          # compiled builds trade away.
+          - { os: windows-latest, target: windows-x64, builder: bun, ext: .exe }
     defaults:
       run:
         # One script for every OS; Windows runners ship Git Bash.
@@ -60,32 +64,37 @@ jobs:
       # scriptc's compiler runs on Node, not Bun: typescript@7's synchronous RPC
       # channel reads `stdout._handle.fd` off a spawned child.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: matrix.builder == 'scriptc'
         with:
           node-version: 22
       - run: bun install --frozen-lockfile
 
       - name: Install the C toolchain scriptc drives (Linux)
-        if: runner.os == 'Linux'
+        if: matrix.builder == 'scriptc' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang cmake
 
       - name: Install the C toolchain scriptc drives (macOS)
-        if: runner.os == 'macOS'
+        if: matrix.builder == 'scriptc' && runner.os == 'macOS'
         run: brew install cmake
 
-      - name: Install the C toolchain scriptc drives (Windows)
-        if: runner.os == 'Windows'
-        run: choco install --no-progress -y llvm cmake
+      - name: Compile (scriptc)
+        if: matrix.builder == 'scriptc'
+        run: bun run build ax${{ matrix.ext }}
 
-      - run: bun run build
+      - name: Compile (bun)
+        if: matrix.builder == 'bun'
+        run: bun build src/index.ts --compile --outfile ax${{ matrix.ext }}
 
       - name: Smoke test — output must match the bun entry point
+        env:
+          AX: ./ax${{ matrix.ext }}
         run: bash .github/scripts/smoke.sh
 
       - name: Report binary size
-        run: ls -l ax | awk '{print $5, $9}'
+        run: ls -l ax${{ matrix.ext }} | awk '{print $5, $9}'
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ax-${{ matrix.os }}
-          path: ax*
+          name: ax-${{ matrix.target }}
+          path: ax${{ matrix.ext }}
           if-no-files-found: error
