@@ -13,13 +13,12 @@
   },
   "scripts": {
     "ax": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile ax",
+    "build": "bun run scripts/build-scriptc.ts",
     "test": "bun test",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt --write .",
     "postinstall": "bun2nix -o nix/bun.nix",
-    "gen": "bun run scripts/gen-agent-context.ts",
-    "build:scriptc": "bun run scripts/build-scriptc.ts"
+    "gen": "bun run scripts/gen-agent-context.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
