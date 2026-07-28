@@ -6,7 +6,6 @@ name: Nix flake
 
 on:
   push:
-    branches: [main]
     paths:
       - '**.nix'
       - 'flake.lock'

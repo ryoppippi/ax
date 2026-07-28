@@ -1,6 +1,6 @@
 {
   lib,
-  stdenv,
+  clangStdenv,
   bun,
   cmake,
   nodejs,
@@ -25,11 +25,13 @@ let
     ];
   };
 in
-# stdenv (not stdenvNoCC): ax compiles to a native executable with scriptc,
-# and --dynamic builds the embedded JavaScript engine from the vendored sources
+# clangStdenv (not stdenvNoCC): ax compiles to a native executable with
+# scriptc, which invokes `clang` by name — the default Linux stdenv provides
+# gcc and no clang, and the build fails with `spawn clang ENOENT`. --dynamic
+# additionally builds the embedded JavaScript engine from the vendored sources
 # in node_modules/@scriptc/runtime with CMake. Everything it compiles is
 # vendored, so the build stays offline.
-stdenv.mkDerivation {
+clangStdenv.mkDerivation {
   pname = packageJson.name;
   inherit (packageJson) version;
   inherit src;
@@ -61,7 +63,7 @@ stdenv.mkDerivation {
   bunInstallFlags = [
     "--linker=isolated"
   ]
-  ++ lib.optionals stdenv.hostPlatform.isDarwin [ "--backend=symlink" ];
+  ++ lib.optionals clangStdenv.hostPlatform.isDarwin [ "--backend=symlink" ];
   # postinstall regenerates bun.nix, which is pointless (and fails) in
   # the sandbox.
   dontRunLifecycleScripts = true;
