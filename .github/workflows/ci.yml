@@ -2,11 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+# A push to a branch with an open PR would otherwise run this twice.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -24,74 +28,64 @@ jobs:
       - run: bunx tsc --noEmit
       - run: bunx oxfmt --check .
       - run: bun test
-      - run: bun build src/index.ts --compile --outfile ax && ./ax --version
 
-  # The native build is a separate job: it compiles the embedded JavaScript
-  # engine from source the first time, which takes minutes and needs a C
-  # toolchain the `test` job has no other use for.
-  native:
-    name: scriptc native build
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  # The native build is a separate job per OS: --dynamic binaries are
+  # host-native (the embedded engine archive is built per target, and
+  # cross-compiling a --dynamic build is not supported), so each platform needs
+  # its own runner. The first build on a runner compiles that engine from
+  # source, which takes minutes and needs a C toolchain the `test` job has no
+  # other use for.
+  build:
+    name: compile (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    # Windows is expected to fail today: scriptc has not ported the socket
+    # stack (net/http/https/tls), which is where ax's fetch lives. Kept in the
+    # matrix so the gap stays visible and flips to green on its own once that
+    # lands upstream — drop continue-on-error then.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+    defaults:
+      run:
+        # One script for every OS; Windows runners ship Git Bash.
+        shell: bash
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
+      # scriptc's compiler runs on Node, not Bun: typescript@7's synchronous RPC
+      # channel reads `stdout._handle.fd` off a spawned child.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
       - run: bun install --frozen-lockfile
 
-      - name: Install the C toolchain scriptc drives
+      - name: Install the C toolchain scriptc drives (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang cmake
 
-      - run: bun run build:scriptc ax-scriptc
+      - name: Install the C toolchain scriptc drives (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
 
-      # The binary embeds a JS engine and reaches the network, so a --version
-      # check alone would miss most of it: exercise the parse, markdown, table
-      # and --where paths, and require byte-identical output against the same
-      # sources run under bun.
+      - name: Install the C toolchain scriptc drives (Windows)
+        if: runner.os == 'Windows'
+        run: choco install --no-progress -y llvm cmake
+
+      - run: bun run build
+
       - name: Smoke test — output must match the bun entry point
-        run: |
-          cat > page.html <<'HTML'
-          <html><body><article>
-          <h1>Title</h1><p>Hello <a href="/x">link</a> world.</p>
-          <ul><li class="item">one</li><li class="item">two</li></ul>
-          <table class="stats"><tr><th>Name</th><th>Stars</th></tr>
-          <tr><td>a</td><td>100</td></tr><tr><td>b</td><td>5</td></tr></table>
-          </article></body></html>
-          HTML
-          fail=0
-          check() {
-            desc=$1; shift
-            got=$(./ax-scriptc "$@" 2>&1) || true
-            want=$(bun src/index.ts "$@" 2>&1) || true
-            if [ "$got" = "$want" ]; then
-              echo "ok    $desc"
-            else
-              fail=1
-              echo "FAIL  $desc"
-              diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") || true
-            fi
-          }
-          check version --version
-          check text page.html '.item' --text
-          check attr page.html a --attr href
-          check count page.html '.item' --count
-          check markdown page.html --md
-          check outline page.html --outline
-          check locate page.html --locate two
-          check table page.html 'table.stats' --table
-          check where page.html 'table.stats' --table --where 'Stars >= 50'
-          check json page.html '.item' --json
-          check envelope page.html '.item' --json-envelope
-          check row page.html '.item' --row 'v=, c=@class'
-          check paging page.html '.item' --text --limit 1 --offset 1
-          check bad-selector page.html '>>>' --text
-          check no-file missing.html --text
-          check no-selector page.html
-          printf '<p class=x>hi</p>' | ./ax-scriptc - '.x' --text
-          exit $fail
+        run: bash .github/scripts/smoke.sh
 
       - name: Report binary size
-        run: |
-          bun build src/index.ts --compile --outfile ax-bun
-          ls -l ax-bun ax-scriptc | awk '{print $5, $9}'
+        run: ls -l ax | awk '{print $5, $9}'
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ax-${{ matrix.os }}
+          path: ax*
+          if-no-files-found: error

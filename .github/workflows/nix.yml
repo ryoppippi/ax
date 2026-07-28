@@ -60,21 +60,17 @@ jobs:
       - name: nix flake check --all-systems
         run: nix flake check --all-systems --no-build
 
+      # Compiles the embedded JavaScript engine from the vendored sources, so
+      # this is minutes rather than seconds.
       - name: nix build .#default
         run: nix build .#default --print-build-logs
 
       - name: nix run .#default -- --version
         run: nix run .#default -- --version
 
-      # Kept out of `checks` so `nix flake check` stays quick: this compiles the
-      # embedded JavaScript engine from the vendored sources, which takes
-      # minutes. Built explicitly here so the derivation cannot rot.
-      - name: nix build .#ax-scriptc
-        run: nix build .#ax-scriptc --print-build-logs
-
-      - name: nix run .#ax-scriptc -- --md
+      - name: nix run .#default -- --md
         run: |
           printf '<article><h1>Title</h1><p>Hello</p></article>' > page.html
-          got=$(nix run .#ax-scriptc -- page.html --md)
+          got=$(nix run .#default -- page.html --md)
           want=$(printf '# Title\n\nHello')
           [ "$got" = "$want" ] || { printf 'got:\n%s\nwant:\n%s\n' "$got" "$want"; exit 1; }
