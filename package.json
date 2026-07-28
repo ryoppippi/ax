@@ -17,12 +17,15 @@
     "test": "bun test",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt --write .",
-    "postinstall": "bun2nix -o nix/bun.nix"
+    "postinstall": "bun2nix -o nix/bun.nix",
+    "gen": "bun run scripts/gen-agent-context.ts",
+    "build:scriptc": "bun run scripts/build-scriptc.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "bun2nix": "^2.1.2",
     "oxfmt": "latest",
+    "scriptc": "^0.0.17",
     "typescript": "^5"
   },
   "dependencies": {
