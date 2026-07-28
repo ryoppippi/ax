@@ -39,7 +39,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -65,3 +65,16 @@ jobs:
 
       - name: nix run .#default -- --version
         run: nix run .#default -- --version
+
+      # Kept out of `checks` so `nix flake check` stays quick: this compiles the
+      # embedded JavaScript engine from the vendored sources, which takes
+      # minutes. Built explicitly here so the derivation cannot rot.
+      - name: nix build .#ax-scriptc
+        run: nix build .#ax-scriptc --print-build-logs
+
+      - name: nix run .#ax-scriptc -- --md
+        run: |
+          printf '<article><h1>Title</h1><p>Hello</p></article>' > page.html
+          got=$(nix run .#ax-scriptc -- page.html --md)
+          want=$(printf '# Title\n\nHello')
+          [ "$got" = "$want" ] || { printf 'got:\n%s\nwant:\n%s\n' "$got" "$want"; exit 1; }

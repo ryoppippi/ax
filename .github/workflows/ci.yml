@@ -19,7 +19,79 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: nix/bun.nix must be in sync with bun.lock
         run: git diff --exit-code nix/bun.nix
+      - name: src/agent-context.gen.ts must be in sync with agent-context.txt
+        run: bun run gen && git diff --exit-code src/agent-context.gen.ts
       - run: bunx tsc --noEmit
       - run: bunx oxfmt --check .
       - run: bun test
       - run: bun build src/index.ts --compile --outfile ax && ./ax --version
+
+  # The native build is a separate job: it compiles the embedded JavaScript
+  # engine from source the first time, which takes minutes and needs a C
+  # toolchain the `test` job has no other use for.
+  native:
+    name: scriptc native build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+
+      - name: Install the C toolchain scriptc drives
+        run: sudo apt-get update && sudo apt-get install -y clang cmake
+
+      - run: bun run build:scriptc ax-scriptc
+
+      # The binary embeds a JS engine and reaches the network, so a --version
+      # check alone would miss most of it: exercise the parse, markdown, table
+      # and --where paths, and require byte-identical output against the same
+      # sources run under bun.
+      - name: Smoke test — output must match the bun entry point
+        run: |
+          cat > page.html <<'HTML'
+          <html><body><article>
+          <h1>Title</h1><p>Hello <a href="/x">link</a> world.</p>
+          <ul><li class="item">one</li><li class="item">two</li></ul>
+          <table class="stats"><tr><th>Name</th><th>Stars</th></tr>
+          <tr><td>a</td><td>100</td></tr><tr><td>b</td><td>5</td></tr></table>
+          </article></body></html>
+          HTML
+          fail=0
+          check() {
+            desc=$1; shift
+            got=$(./ax-scriptc "$@" 2>&1) || true
+            want=$(bun src/index.ts "$@" 2>&1) || true
+            if [ "$got" = "$want" ]; then
+              echo "ok    $desc"
+            else
+              fail=1
+              echo "FAIL  $desc"
+              diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") || true
+            fi
+          }
+          check version --version
+          check text page.html '.item' --text
+          check attr page.html a --attr href
+          check count page.html '.item' --count
+          check markdown page.html --md
+          check outline page.html --outline
+          check locate page.html --locate two
+          check table page.html 'table.stats' --table
+          check where page.html 'table.stats' --table --where 'Stars >= 50'
+          check json page.html '.item' --json
+          check envelope page.html '.item' --json-envelope
+          check row page.html '.item' --row 'v=, c=@class'
+          check paging page.html '.item' --text --limit 1 --offset 1
+          check bad-selector page.html '>>>' --text
+          check no-file missing.html --text
+          check no-selector page.html
+          printf '<p class=x>hi</p>' | ./ax-scriptc - '.x' --text
+          exit $fail
+
+      - name: Report binary size
+        run: |
+          bun build src/index.ts --compile --outfile ax-bun
+          ls -l ax-bun ax-scriptc | awk '{print $5, $9}'
