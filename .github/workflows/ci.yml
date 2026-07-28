@@ -45,7 +45,7 @@ jobs:
           - { os: ubuntu-latest, target: linux-x64, builder: scriptc }
           - { os: ubuntu-24.04-arm, target: linux-arm64, builder: scriptc }
           - { os: macos-latest, target: darwin-arm64, builder: scriptc }
-          - { os: macos-13, target: darwin-x64, builder: scriptc }
+          - { os: macos-15-intel, target: darwin-x64, builder: scriptc }
           # Windows builds with bun instead: scriptc has not ported the socket
           # stack (net/http/https/tls), which is where ax's fetch lives. The
           # sources are the same, and the bun path keeps the full-fidelity

@@ -22,7 +22,7 @@ jobs:
       matrix:
         include:
           - { os: macos-latest, target: darwin-arm64, builder: scriptc }
-          - { os: macos-13, target: darwin-x64, builder: scriptc }
+          - { os: macos-15-intel, target: darwin-x64, builder: scriptc }
           - { os: ubuntu-latest, target: linux-x64, builder: scriptc }
           - { os: ubuntu-24.04-arm, target: linux-arm64, builder: scriptc }
           # Windows ships a bun-compiled binary: scriptc has not ported the
